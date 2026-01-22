@@ -30,16 +30,14 @@ def send_feedback_email(text, image_file=None):
     try:
         conf = st.secrets["email"]
         msg = MIMEMultipart()
-        msg['Subject'] = f"【DICOM工具反馈】来自用户 - {datetime.now().strftime('%m/%d %H:%M')}"
+        msg['Subject'] = f"【网页版反馈】来自用户 - {datetime.now().strftime('%m/%d %H:%M')}"
         msg['From'] = conf["sender"]
         msg['To'] = conf["receiver"]
         msg.attach(MIMEText(text, 'plain'))
-
         if image_file:
             img_data = image_file.read()
             image = MIMEImage(img_data, name=image_file.name)
             msg.attach(image)
-
         with smtplib.SMTP_SSL(conf["smtp_server"], conf["smtp_port"]) as server:
             server.login(conf["sender"], conf["password"])
             server.send_message(msg)
@@ -48,21 +46,19 @@ def send_feedback_email(text, image_file=None):
         st.error(f"邮件推送失败，请检查 Secrets 配置: {e}")
         return False
 
-# --- 3. 动态 CSS 注入 (全系蓝色与底部吸附布局) ---
+# --- 3. 动态 CSS 注入 (与本地版完全一致) ---
 MAIN_BLUE = "#1565C0"
 BG_BLUE = "#E3F2FD"
 
-# 动态计算主框内边距
 uploader_key = "main_dcm_uploader"
 is_uploaded = st.session_state.get(uploader_key) is not None and len(st.session_state.get(uploader_key, [])) > 0
 main_padding = "20px" if is_uploaded else "80px"
 
 st.markdown(f"""
 <style>
-    /* 标题样式 */
     .main-header {{ font-size: 2.5rem; color: {MAIN_BLUE}; text-align: center; margin-bottom: 30px; font-weight: bold; }}
     
-    /* 隐藏原生按钮与默认文字 */
+    /* 隐藏原生按钮与文字 */
     div[data-testid="stFileUploader"] section button {{ display: none !important; }}
     div[data-testid="stFileUploader"] section div {{ font-size: 0 !important; color: transparent !important; }}
 
@@ -75,25 +71,11 @@ st.markdown(f"""
         text-align: center;
         transition: all 0.3s ease;
     }}
-    div:not([data-testid="stFileUploader"]) div[data-testid="stFileUploader"] section::before {{
+    div:not([data-testid="stSidebar"]) div[data-testid="stFileUploader"] section::before {{
         content: "📂 请将文件夹或.dcm文件拖入框内";
         color: {MAIN_BLUE};
         font-size: 1.3rem !important;
         font-weight: bold;
-        visibility: visible;
-    }}
-
-    /* 侧边栏反馈上传框 */
-    div[data-testid="stSidebar"] div[data-testid="stFileUploader"] section {{
-        border: 1px dashed {MAIN_BLUE} !important;
-        border-radius: 8px;
-        padding: 15px !important;
-        background-color: #FFFFFF !important;
-    }}
-    div[data-testid="stSidebar"] div[data-testid="stFileUploader"] section::before {{
-        content: "🖼️ 图片说明 (非必须)";
-        color: {MAIN_BLUE};
-        font-size: 0.85rem !important;
         visibility: visible;
     }}
 
@@ -104,22 +86,25 @@ st.markdown(f"""
         height: 100vh;
     }}
     .sidebar-spacer {{ flex-grow: 1; }}
+
+    /* 按钮美化 */
+    div.stButton > button {{ border-radius: 8px; font-weight: bold; }}
 </style>
 """, unsafe_allow_html=True)
 
 st.markdown(f'<div class="main-header">🩺 DICOM 信息提取与校正</div>', unsafe_allow_html=True)
 
-# --- 4. 侧边栏布局 ---
+# --- 4. 侧边栏布局 (同步本地版 v6.4) ---
 with st.sidebar:
     st.header("⚙️ 辅助设置")
     manual_chinese = st.text_input("当前批次汉字姓名补全", placeholder="输入汉字以校正拼音...")
     st.divider()
+    
     st.info("💡 提示：本工具支持自动去重，一个患者只生成一行记录。")
     
-    # 弹性占位空间，将以下内容推向底部
     st.markdown('<div class="sidebar-spacer"></div>', unsafe_allow_html=True)
     
-    # 应用说明 (调整到上方)
+    # 应用说明 (内容与本地版保持高度同步)
     with st.expander("📖 应用说明"):
         st.markdown("""
         **1. 功能简介**
@@ -135,17 +120,22 @@ with st.sidebar:
         **3. 隐私说明**
         * **内存解析**：数据不经磁盘存储，即下即毁。
         * **反馈安全**：反馈仅传输描述与图片，不涉及影像原始数据。
+
+        **4. 版本说明**
+        * **官方网页版**：[https://dicomtool.streamlit.app/](https://dicomtool.streamlit.app/)
+        * **GitHub 仓库**：[DreamLight25/DICOM-Tool](https://github.com/DreamLight25/DICOM-Tool)
+        * **本地版下载**：处理大数据量建议使用本地版，请前往 GitHub 的 **Releases** 页面下载。
         """)
 
-    # 问题反馈 (调整到最下方)
+    # 问题反馈 (网页版作为终点站，保留表单)
     with st.expander("💬 问题反馈"):
-        feedback_text = st.text_area("问题或建议：", placeholder="请描述异常情况...", height=100)
-        feedback_file = st.file_uploader("", type=['png', 'jpg', 'jpeg'], key="sidebar_feedback_img")
+        feedback_text = st.text_area("问题或建议：", placeholder="请描述您遇到的异常...", height=100)
+        feedback_file = st.file_uploader("🖼️ 图片说明 (非必须)", type=['png', 'jpg', 'jpeg'], key="web_feedback_img")
         if st.button("提交反馈", type="primary", use_container_width=True):
             if feedback_text:
                 with st.spinner("正在推送邮件通知..."):
                     if send_feedback_email(feedback_text, feedback_file):
-                        st.success("✅ 提交成功！")
+                        st.success("✅ 提交成功！赵同学已收到通知。")
             else:
                 st.warning("请填写文字描述")
 
@@ -154,36 +144,37 @@ uploaded_files = st.file_uploader("", type=['dcm'], accept_multiple_files=True, 
 
 if uploaded_files:
     processed_studies = {}
-    with st.status("🚀 正在提取数据...", expanded=True) as status:
+    with st.status("🚀 正在分析数据...", expanded=True) as status:
         for file in uploaded_files:
             try:
                 ds = pydicom.dcmread(file, stop_before_pixels=True)
                 study_id = str(ds.get('StudyInstanceUID', 'None'))
                 if study_id not in processed_studies:
-                    # 姓名与年龄处理
                     name = get_final_name(ds, manual_chinese)
+                    # 年龄处理
                     age = str(ds.get('PatientAge', ''))
                     if not age:
                         try:
                             birth, study = ds.get('PatientBirthDate', ''), ds.get('StudyDate', '')
                             b, s = datetime.strptime(birth, "%Y%m%d"), datetime.strptime(study, "%Y%m%d")
-                            age = f"{s.year - b.year - ((study.month, study.day) < (birth.month, birth.day))}岁"
+                            age = f"{s.year - b.year - ((s.month, s.day) < (b.month, b.day))}岁"
                         except: age = "未知"
-                    else: age = age.replace('Y', '岁').lstrip('0')
+                    else:
+                        age = age.replace('Y', '岁').lstrip('0')
 
                     processed_studies[study_id] = {
                         "姓名": name,
-                        "性别": str(ds.get('PatientSex', '未知')),
+                        "性别": ds.get('PatientSex', '未知'),
                         "年龄": age,
-                        "检查日期": str(ds.get('StudyDate', '未知')),
+                        "检查日期": ds.get('StudyDate', '未知'),
                         "代表文件名": file.name
                     }
             except: continue
-        status.update(label="✅ 提取完毕", state="complete", expanded=False)
+        status.update(label="✅ 提取完毕", state="complete")
 
     if processed_studies:
         df = pd.DataFrame(list(processed_studies.values()))
-        df.index = range(1, len(df) + 1) # 序号从 1 开始
+        df.index = range(1, len(df) + 1)
         st.subheader(f"📊 提取清单 (共计 {len(df)} 位患者)")
         st.dataframe(df, use_container_width=True)
         
