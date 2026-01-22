@@ -33,7 +33,7 @@
 ### 2. 环境配置 (仅需执行一次)
 
 * **Windows 用户**：
-1. 请确保已安装 Python 3.12 (推荐从 Microsoft Store 搜索安装)。
+1. 请确保已安装 Python 3.9 / 3.10 / 3.11 / 3.12 (推荐使用 3.12)(推荐从 Microsoft Store 搜索安装)。
 2. 进入 `DICOM tool (windows)` 文件夹，双击 `1.第一次使用请点我_安装环境 (Windows版).bat`。
 
 
