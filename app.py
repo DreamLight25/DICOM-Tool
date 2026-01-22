@@ -3,14 +3,19 @@ import pydicom
 import pandas as pd
 import re
 import os
+import smtplib
 from pypinyin import pinyin, Style
 from datetime import datetime
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.image import MIMEImage
 
 # --- 1. 页面基本配置 ---
 st.set_page_config(page_title="DICOM 信息提取与校正", page_icon="🦷", layout="wide")
 
 # --- 2. 核心算法逻辑 ---
 def get_final_name(ds, manual_name):
+    """姓名处理：支持手动汉字校正"""
     raw_name = str(ds.get('PatientName', '未知')).replace('^', ' ').replace('=', '').strip()
     if manual_name:
         clean_pinyin = raw_name.replace(" ", "").lower()
@@ -20,25 +25,48 @@ def get_final_name(ds, manual_name):
             return f"{manual_name} ({raw_name})"
     return raw_name
 
-# --- 3. 动态 CSS 注入 (重点：强制文字替换与色彩同步) ---
+def send_feedback_email(text, image_file=None):
+    """发送反馈邮件逻辑"""
+    try:
+        conf = st.secrets["email"]
+        msg = MIMEMultipart()
+        msg['Subject'] = f"【DICOM工具反馈】来自用户 - {datetime.now().strftime('%m/%d %H:%M')}"
+        msg['From'] = conf["sender"]
+        msg['To'] = conf["receiver"]
+        msg.attach(MIMEText(text, 'plain'))
+
+        if image_file:
+            img_data = image_file.read()
+            image = MIMEImage(img_data, name=image_file.name)
+            msg.attach(image)
+
+        with smtplib.SMTP_SSL(conf["smtp_server"], conf["smtp_port"]) as server:
+            server.login(conf["sender"], conf["password"])
+            server.send_message(msg)
+        return True
+    except Exception as e:
+        st.error(f"邮件推送失败，请检查 Secrets 配置: {e}")
+        return False
+
+# --- 3. 动态 CSS 注入 (全系蓝色与底部吸附布局) ---
 MAIN_BLUE = "#1565C0"
 BG_BLUE = "#E3F2FD"
 
-# 动态计算主框高度
+# 动态计算主框内边距
 uploader_key = "main_dcm_uploader"
 is_uploaded = st.session_state.get(uploader_key) is not None and len(st.session_state.get(uploader_key, [])) > 0
 main_padding = "20px" if is_uploaded else "80px"
 
 st.markdown(f"""
 <style>
-    /* 标题颜色 */
+    /* 标题样式 */
     .main-header {{ font-size: 2.5rem; color: {MAIN_BLUE}; text-align: center; margin-bottom: 30px; font-weight: bold; }}
     
-    /* 隐藏所有原生按钮和默认文字 */
+    /* 隐藏原生按钮与默认文字 */
     div[data-testid="stFileUploader"] section button {{ display: none !important; }}
     div[data-testid="stFileUploader"] section div {{ font-size: 0 !important; color: transparent !important; }}
 
-    /* 【修正1】主页面上传框：显示正确文字 */
+    /* 主页面上传框 */
     div:not([data-testid="stSidebar"]) div[data-testid="stFileUploader"] section {{
         border: 2px dashed {MAIN_BLUE};
         border-radius: 15px;
@@ -47,7 +75,7 @@ st.markdown(f"""
         text-align: center;
         transition: all 0.3s ease;
     }}
-    div:not([data-testid="stSidebar"]) div[data-testid="stFileUploader"] section::before {{
+    div:not([data-testid="stFileUploader"]) div[data-testid="stFileUploader"] section::before {{
         content: "📂 请将文件夹或.dcm文件拖入框内";
         color: {MAIN_BLUE};
         font-size: 1.3rem !important;
@@ -55,31 +83,27 @@ st.markdown(f"""
         visibility: visible;
     }}
 
-    /* 【修正2】侧边栏上传框：彻底抹除误导文字，改为“图片说明” */
+    /* 侧边栏反馈上传框 */
     div[data-testid="stSidebar"] div[data-testid="stFileUploader"] section {{
         border: 1px dashed {MAIN_BLUE} !important;
         border-radius: 8px;
         padding: 15px !important;
         background-color: #FFFFFF !important;
-        text-align: center;
     }}
     div[data-testid="stSidebar"] div[data-testid="stFileUploader"] section::before {{
         content: "🖼️ 图片说明 (非必须)";
         color: {MAIN_BLUE};
-        font-size: 0.9rem !important;
-        font-weight: normal;
+        font-size: 0.85rem !important;
         visibility: visible;
     }}
 
-    /* 【修正3】侧边栏布局：底部吸附逻辑 */
+    /* 侧边栏底部吸附布局 */
     [data-testid="stSidebar"] > div:first-child {{
         display: flex;
         flex-direction: column;
         height: 100vh;
     }}
-    .sidebar-spacer {{
-        flex-grow: 1;
-    }}
+    .sidebar-spacer {{ flex-grow: 1; }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -92,30 +116,38 @@ with st.sidebar:
     st.divider()
     st.info("💡 提示：本工具支持自动去重，一个患者只生成一行记录。")
     
-    # 占位符将反馈推向底部
+    # 弹性占位空间，将以下内容推向底部
     st.markdown('<div class="sidebar-spacer"></div>', unsafe_allow_html=True)
     
+    # 应用说明 (调整到上方)
+    with st.expander("📖 应用说明"):
+        st.markdown("""
+        **1. 功能简介**
+        * **全自动提取**：秒级读取姓名、性别、日期。
+        * **年龄推算**：智能补齐缺失的年龄标签。
+        * **序列去重**：一人一行，无惧成千上万切片。
+
+        **2. 使用方法**
+        1. 直接拖入文件夹或DCM文件到蓝色区域。
+        2. 若姓名显示拼音，在侧边栏输入汉字校正。
+        3. 点击下方按钮导出 Excel 兼容表。
+
+        **3. 隐私说明**
+        * **内存解析**：数据不经磁盘存储，即下即毁。
+        * **反馈安全**：反馈仅传输描述与图片，不涉及影像原始数据。
+        """)
+
+    # 问题反馈 (调整到最下方)
     with st.expander("💬 问题反馈"):
-        feedback_text = st.text_area("问题或建议：", placeholder="请描述遇到的异常...", height=100)
-        # 侧边栏图片上传
+        feedback_text = st.text_area("问题或建议：", placeholder="请描述异常情况...", height=100)
         feedback_file = st.file_uploader("", type=['png', 'jpg', 'jpeg'], key="sidebar_feedback_img")
-        
         if st.button("提交反馈", type="primary", use_container_width=True):
             if feedback_text:
-                if not os.path.exists("feedback_images"): os.makedirs("feedback_images")
-                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                img_path = "无"
-                if feedback_file:
-                    img_path = f"feedback_images/{datetime.now().strftime('%Y%m%d_%H%M%S')}_{feedback_file.name}"
-                    with open(img_path, "wb") as f:
-                        f.write(feedback_file.getbuffer())
-                
-                new_data = pd.DataFrame([[timestamp, feedback_text, img_path]], columns=["时间", "内容", "截图路径"])
-                file_exists = os.path.isfile("feedback_log.csv")
-                new_data.to_csv("feedback_log.csv", mode='a', index=False, header=not file_exists, encoding='utf-8-sig')
-                st.success("✅ 提交成功！")
+                with st.spinner("正在推送邮件通知..."):
+                    if send_feedback_email(feedback_text, feedback_file):
+                        st.success("✅ 提交成功！")
             else:
-                st.warning("请填写描述")
+                st.warning("请填写文字描述")
 
 # --- 5. 主处理流程 ---
 uploaded_files = st.file_uploader("", type=['dcm'], accept_multiple_files=True, key=uploader_key)
@@ -128,6 +160,7 @@ if uploaded_files:
                 ds = pydicom.dcmread(file, stop_before_pixels=True)
                 study_id = str(ds.get('StudyInstanceUID', 'None'))
                 if study_id not in processed_studies:
+                    # 姓名与年龄处理
                     name = get_final_name(ds, manual_chinese)
                     age = str(ds.get('PatientAge', ''))
                     if not age:
